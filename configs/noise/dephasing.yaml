@@ -1,0 +1,9 @@
+noise:
+  schedule:
+    - kind: dephasing
+      qubit: 1
+      p: 0.12
+
+output:
+  stem: dephasing_run
+

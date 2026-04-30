@@ -1,0 +1,11 @@
+coherent_veto:
+  source_stem: encoded_coherent_validation
+  score_field: clean_observed_distance
+  fidelity_margin: 0.01
+  negative_gain_eps: 0.0
+  quantiles:
+    - 0.70
+    - 0.80
+    - 0.90
+    - 0.95
+  case_limit: 6

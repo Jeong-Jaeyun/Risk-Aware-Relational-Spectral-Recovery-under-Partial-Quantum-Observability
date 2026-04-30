@@ -1,0 +1,60 @@
+encoded_qec:
+  codes:
+    - bitflip
+    - phaseflip
+  state_configs:
+    bitflip: states/repetition_bitflip.yaml
+    phaseflip: states/repetition_phaseflip.yaml
+  kinds_by_code:
+    bitflip:
+      - bitflip
+      - depolarizing
+      - amplitude_damping
+      - coherent_x
+    phaseflip:
+      - phaseflip
+      - dephasing
+      - depolarizing
+      - amplitude_damping
+      - coherent_z
+  kinds:
+    - bitflip
+    - phaseflip
+    - dephasing
+    - depolarizing
+    - amplitude_damping
+    - coherent_x
+    - coherent_z
+  trajectory_inconsistency_threshold: 0.05
+  syndrome_consistent_threshold: 0.9
+  hybrid:
+    objective_tol: 1.0e-9
+    tie_break_requires_syndrome_consistent: true
+
+encoded_regime_map:
+  codes:
+    - bitflip
+    - phaseflip
+  noise_families:
+    - bitflip
+    - phaseflip
+    - dephasing
+    - depolarizing
+    - amplitude_damping
+    - coherent_x
+    - coherent_z
+    - mixed
+  strengths:
+    - 0.03
+    - 0.10
+    - 0.15
+  depths:
+    - 1
+    - 2
+  seeds:
+    - 11
+    - 17
+  fidelity_margin: 0.01
+
+output:
+  stem: encoded_regime_map

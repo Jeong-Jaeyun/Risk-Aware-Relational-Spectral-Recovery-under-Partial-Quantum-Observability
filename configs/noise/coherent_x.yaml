@@ -1,0 +1,8 @@
+noise:
+  schedule:
+    - kind: coherent_x
+      qubit: 0
+      p: 0.12
+
+output:
+  stem: coherent_x_run

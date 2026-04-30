@@ -1,0 +1,10 @@
+state:
+  mode: manual
+  recipe: ghz_like
+
+clock:
+  initial_state: plus
+
+output:
+  stem: ghz_clock
+

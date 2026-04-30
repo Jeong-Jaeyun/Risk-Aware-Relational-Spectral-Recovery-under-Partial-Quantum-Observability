@@ -1,0 +1,10 @@
+state:
+  mode: manual
+  recipe: uniform_bell
+
+clock:
+  initial_state: plus
+
+output:
+  stem: bell_clock
+

@@ -1,0 +1,13 @@
+state:
+  mode: "null"
+  align_spectra: true
+  null_mode: ground_null
+
+clock:
+  initial_state: plus
+
+mapping:
+  mode: coherence_abs
+
+output:
+  stem: null_clock

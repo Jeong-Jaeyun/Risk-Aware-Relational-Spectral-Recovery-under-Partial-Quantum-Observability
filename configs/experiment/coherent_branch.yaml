@@ -1,0 +1,28 @@
+coherent_v1:
+  source_stem: encoded_coherent_validation
+  score_field: clean_observed_distance
+  fidelity_margin: 0.01
+  negative_gain_eps: 0.0
+  flag_threshold_quantile: 0.70
+
+coherent_threshold_sweep:
+  source_stem: encoded_coherent_validation
+  score_field: clean_observed_distance
+  fidelity_margin: 0.01
+  negative_gain_eps: 0.0
+  quantiles:
+    - 0.60
+    - 0.65
+    - 0.70
+    - 0.75
+    - 0.80
+    - 0.85
+
+coherent_casebook:
+  source_stem: encoded_coherent_validation
+  score_field: clean_observed_distance
+  fidelity_margin: 0.01
+  negative_gain_eps: 0.0
+  negative_case_limit: 10
+  agreement_case_limit: 10
+  agreement_eps: 1.0e-9

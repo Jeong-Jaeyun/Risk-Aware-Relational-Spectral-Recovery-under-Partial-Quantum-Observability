@@ -1,0 +1,9 @@
+noise:
+  schedule:
+    - kind: depolarizing
+      qubit: 0
+      p: 0.05
+
+output:
+  stem: depolarizing_run
+

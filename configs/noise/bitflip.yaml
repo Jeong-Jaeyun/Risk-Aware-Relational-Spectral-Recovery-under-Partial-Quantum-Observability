@@ -1,0 +1,9 @@
+noise:
+  schedule:
+    - kind: bitflip
+      qubit: 0
+      p: 0.08
+
+output:
+  stem: bitflip_run
+

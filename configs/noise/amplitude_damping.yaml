@@ -1,0 +1,8 @@
+noise:
+  schedule:
+    - kind: amplitude_damping
+      qubit: 0
+      p: 0.12
+
+output:
+  stem: amplitude_damping_run

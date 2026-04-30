@@ -1,0 +1,20 @@
+admissibility:
+  kappa: 1.5
+
+recovery:
+  weights:
+    obs_fit: 64.0
+    ref_anchor: 16.0
+    lap: 0.75
+    smooth: 0.1
+    clock: 0.1
+    phi_ref: 0.0
+  stage2:
+    enabled: true
+    apply_rule: diagnostic_only
+    local_count: 3
+    grid_steps: 10
+    require_interior: true
+
+output:
+  stem: recovery_eval

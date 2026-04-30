@@ -1,0 +1,28 @@
+clock:
+  initial_state: ground
+  hamiltonian:
+    hx: 0.8
+    hz: 0.0
+    J: 0.0
+
+system:
+  hamiltonian:
+    hx: [0.4, 0.4]
+    hz: [0.0, 0.0]
+    J: [0.0]
+
+state:
+  mode: "null"
+  align_spectra: true
+  null_mode: custom
+  null_coeffs:
+    - real: 1.0
+      imag: 0.0
+    - real: 0.0
+      imag: 1.0
+
+mapping:
+  mode: coherence_abs
+
+output:
+  stem: null_dynamic

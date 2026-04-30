@@ -1,0 +1,8 @@
+detection:
+  alpha: 0.65
+  n_grid: 256
+  sigma: auto
+
+output:
+  stem: detection_eval
+

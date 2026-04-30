@@ -1,0 +1,97 @@
+seed: 7
+
+simulation:
+  backend: qiskit_aer
+
+clock:
+  n_qubits: 1
+  initial_state: ground
+  hamiltonian:
+    hx: 0.8
+    hz: 0.0
+    J: 0.0
+
+system:
+  n_qubits: 2
+  hamiltonian:
+    hx: [0.4, 0.4]
+    hz: [0.0, 0.0]
+    J: [0.0]
+
+state:
+  mode: "null"
+  align_spectra: true
+  null_mode: custom
+  null_coeffs:
+    - real: 1.0
+      imag: 0.0
+    - real: 0.0
+      imag: 1.0
+  tol: 1.0e-9
+
+time:
+  tau_min: -2.0
+  tau_max: 2.0
+  n_tau: 9
+  scale_by_norm: false
+
+mapping:
+  mode: coherence_abs
+
+noise:
+  schedule: []
+
+detection:
+  alpha: 0.6
+  n_grid: 192
+  sigma: auto
+  kl_scale: 1.0
+  w1_scale: 1.0
+
+clock_consistency:
+  kappa: 3.0
+
+admissibility:
+  kappa: 1.5
+
+recovery:
+  weights:
+    obs_fit: 64.0
+    ref_anchor: 16.0
+    lap: 0.75
+    smooth: 0.1
+    clock: 0.1
+    phi_ref: 0.0
+  stage2:
+    enabled: true
+    apply_rule: diagnostic_only
+    local_count: 3
+    grid_steps: 10
+    require_interior: true
+
+reference_bank:
+  trajectories:
+    - label: phase_pi_over_2
+    - label: phase_minus_20deg
+      state:
+        mode: "null"
+        align_spectra: true
+        null_mode: custom
+        null_coeffs:
+          - real: 1.0
+            imag: 0.0
+          - real: 0.3420201433256688
+            imag: 0.9396926207859083
+    - label: phase_plus_20deg
+      state:
+        mode: "null"
+        align_spectra: true
+        null_mode: custom
+        null_coeffs:
+          - real: 1.0
+            imag: 0.0
+          - real: -0.3420201433256687
+            imag: 0.9396926207859084
+
+output:
+  stem: default_run

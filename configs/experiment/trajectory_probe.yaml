@@ -1,0 +1,8 @@
+time:
+  tau_min: -2.0
+  tau_max: 2.0
+  n_tau: 11
+
+output:
+  stem: trajectory_probe
+
