@@ -1,10 +1,3 @@
-# biqmn
-
-`biqmn` contains the simulation and analysis code for the relational spectral
-recovery experiments reported in the manuscript. The main reproducibility target
-is the C3R robust-policy analysis over clean, partial-syndrome, noisy-syndrome,
-partial-plus-noisy, and ambiguity-plus-measurement regimes.
-
 ## Environment
 
 The project was developed and run with the `QEC` conda environment.
