@@ -3,8 +3,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any, Sequence
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 import matplotlib
 
@@ -13,7 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .coherent_veto_common import ensure_plot_root
-from .common import RESULT_ROOT, load_config, resolve_output_stem, to_serializable, write_json_result
+from .common import RESULT_ROOT, load_config, progress_iter, resolve_output_stem, to_serializable, write_json_result
 from .run_encoded_qec_baseline import _markdown_table, _write_csv
 from .run_hybrid_c123_baseline import (
     C3RPolicyConfig,
@@ -321,38 +327,51 @@ def run(
     experiment_config: str,
     output_stem: str,
     plot_prefix: str,
+    max_workers: int = 1,
+    resume: bool = True,
 ) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
-    for ambiguity_level in ambiguity_levels:
-        for measurement_reset_prob in measurement_reset_probs:
-            stress_cfg = SyndromeObservationConfig(
-                observation_ratio=float(syndrome_obs_cfg.observation_ratio),
-                noise_prob=float(syndrome_obs_cfg.noise_prob),
-                ambiguity_level=float(ambiguity_level),
-                measurement_error_prob=float(measurement_reset_prob),
-                reset_error_prob=float(measurement_reset_prob),
-                consistency_threshold=float(syndrome_obs_cfg.consistency_threshold),
-            )
-            baseline = run_hybrid_c123_baseline(
-                codes=codes,
-                state_configs=state_configs,
-                kinds_by_code=kinds_by_code,
-                noise_families=noise_families,
-                strengths=strengths,
-                depths=depths,
-                seeds=seeds,
-                fidelity_margin=fidelity_margin,
-                logical_success_threshold=logical_success_threshold,
-                c2_cfg=c2_cfg,
-                c3_cfg=c3_cfg,
-                c3r_cfg=c3r_cfg,
-                syndrome_obs_cfg=stress_cfg,
-                c1_objective_tol=c1_objective_tol,
-                c1_tie_break_requires_syndrome_consistent=c1_tie_break_requires_syndrome_consistent,
-                experiment_config=experiment_config,
-                output_stem=f"{output_stem}_a{ambiguity_level:.2f}_m{measurement_reset_prob:.2f}",
-            )
-            rows.extend(dict(row) for row in baseline["rows"])
+    combos = [
+        (float(ambiguity_level), float(measurement_reset_prob))
+        for ambiguity_level in ambiguity_levels
+        for measurement_reset_prob in measurement_reset_probs
+    ]
+    for ambiguity_level, measurement_reset_prob in progress_iter(
+        combos,
+        total=len(combos),
+        desc=f"{output_stem}: ambiguity/measurement combos",
+        unit="combo",
+    ):
+        stress_cfg = SyndromeObservationConfig(
+            observation_ratio=float(syndrome_obs_cfg.observation_ratio),
+            noise_prob=float(syndrome_obs_cfg.noise_prob),
+            ambiguity_level=float(ambiguity_level),
+            measurement_error_prob=float(measurement_reset_prob),
+            reset_error_prob=float(measurement_reset_prob),
+            consistency_threshold=float(syndrome_obs_cfg.consistency_threshold),
+        )
+        baseline = run_hybrid_c123_baseline(
+            codes=codes,
+            state_configs=state_configs,
+            kinds_by_code=kinds_by_code,
+            noise_families=noise_families,
+            strengths=strengths,
+            depths=depths,
+            seeds=seeds,
+            fidelity_margin=fidelity_margin,
+            logical_success_threshold=logical_success_threshold,
+            c2_cfg=c2_cfg,
+            c3_cfg=c3_cfg,
+            c3r_cfg=c3r_cfg,
+            syndrome_obs_cfg=stress_cfg,
+            c1_objective_tol=c1_objective_tol,
+            c1_tie_break_requires_syndrome_consistent=c1_tie_break_requires_syndrome_consistent,
+            experiment_config=experiment_config,
+            output_stem=f"{output_stem}_a{ambiguity_level:.2f}_m{measurement_reset_prob:.2f}",
+            max_workers=max_workers,
+            resume=resume,
+        )
+        rows.extend(dict(row) for row in baseline["rows"])
 
     by_regime_cell = _annotate_regime_cells(
         _group_rows(
@@ -448,6 +467,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--measurement-reset-probs", default=None)
     parser.add_argument("--output-stem", default=None)
     parser.add_argument("--plot-prefix", default=None)
+    parser.add_argument("--workers", type=int, default=None)
+    parser.add_argument("--no-resume", action="store_true")
     return parser
 
 
@@ -516,6 +537,8 @@ def main() -> None:
         experiment_config=args.config,
         output_stem=stem,
         plot_prefix=plot_prefix,
+        max_workers=int(args.workers if args.workers is not None else os.environ.get("BIQMN_WORKERS", "1")),
+        resume=not bool(args.no_resume),
     )
     json_path = write_json_result(result, stem)
     tables_dir = RESULT_ROOT / "tables"

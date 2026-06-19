@@ -3,8 +3,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any, Sequence
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 import matplotlib
 
@@ -535,6 +541,8 @@ def run(
     experiment_config: str,
     output_stem: str,
     plot_prefix: str,
+    max_workers: int = 1,
+    resume: bool = True,
 ) -> dict[str, Any]:
     baseline = run_hybrid_c123_baseline(
         codes=codes,
@@ -554,6 +562,8 @@ def run(
         c1_tie_break_requires_syndrome_consistent=c1_tie_break_requires_syndrome_consistent,
         experiment_config=experiment_config,
         output_stem=output_stem,
+        max_workers=max_workers,
+        resume=resume,
     )
     rows = [dict(row) for row in baseline["rows"]]
     by_regime_cell = _annotate_regime_cells(
@@ -662,6 +672,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seeds", default=None)
     parser.add_argument("--output-stem", default=None)
     parser.add_argument("--plot-prefix", default=None)
+    parser.add_argument("--workers", type=int, default=None)
+    parser.add_argument("--no-resume", action="store_true")
     return parser
 
 
@@ -717,6 +729,8 @@ def main() -> None:
         experiment_config=args.config,
         output_stem=stem,
         plot_prefix=plot_prefix,
+        max_workers=int(args.workers if args.workers is not None else os.environ.get("BIQMN_WORKERS", "1")),
+        resume=not bool(args.no_resume),
     )
     json_path = write_json_result(result, stem)
     tables_dir = RESULT_ROOT / "tables"

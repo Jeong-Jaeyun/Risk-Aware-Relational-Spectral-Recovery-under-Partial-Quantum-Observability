@@ -1,0 +1,52 @@
+clock:
+  n_qubits: 1
+  initial_state: plus
+  hamiltonian:
+    hx: 0.8
+    hz: 0.0
+    J: 0.0
+
+system:
+  n_qubits: 5
+  hamiltonian:
+    hx: [0.0, 0.0, 0.0, 0.0, 0.0]
+    hz: [0.0, 0.0, 0.0, 0.0, 0.0]
+    J: [0.0, 0.0, 0.0, 0.0]
+
+state:
+  mode: encoded
+  align_spectra: false
+  code: perfect5
+  logical_amplitudes:
+    - real: 1.0
+      imag: 0.0
+    - real: 1.0
+      imag: 0.0
+
+mapping:
+  mode: mutual_info
+
+reference_bank:
+  trajectories:
+    - label: logical_plus
+    - label: logical_plus_20deg
+      state:
+        mode: encoded
+        code: perfect5
+        logical_amplitudes:
+          - real: 1.0
+            imag: 0.0
+          - real: 0.9396926207859084
+            imag: 0.3420201433256687
+    - label: logical_minus_20deg
+      state:
+        mode: encoded
+        code: perfect5
+        logical_amplitudes:
+          - real: 1.0
+            imag: 0.0
+          - real: 0.9396926207859084
+            imag: -0.3420201433256687
+
+output:
+  stem: encoded_perfect5

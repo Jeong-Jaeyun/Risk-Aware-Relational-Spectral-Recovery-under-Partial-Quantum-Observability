@@ -1,11 +1,10 @@
-"""Baseline A: classical syndrome-based recovery for the [[3,1,1]] repetition
-codes, lifted to the Page-Wootters trajectory framework.
+"""Baseline A: standard syndrome recovery lifted to the trajectory framework.
 
-Given a noisy SpectralTrajectory (whose per-τ density is a 3-qubit data-register
-state), this module runs the circuit-level syndrome-recovery channel on every
-slice and returns the recovered trajectory plus aggregated syndrome / logical
-fidelity statistics. The recovered slices are re-packaged as a SpectralTrajectory
-so downstream admissibility/trajectory-distance code operates on them unchanged.
+Given a noisy SpectralTrajectory, this module runs the code-specific stabilizer
+syndrome-recovery channel on every slice and returns the recovered trajectory
+plus aggregated syndrome / logical fidelity statistics. The recovered slices are
+re-packaged as a SpectralTrajectory so downstream admissibility and trajectory
+distance code operates on them unchanged.
 """
 from __future__ import annotations
 
@@ -15,8 +14,10 @@ import numpy as np
 
 from ..core.encoding import (
     apply_syndrome_recovery,
+    get_code_spec,
     logical_state,
     syndrome_probabilities,
+    warm_up_syndrome_recovery,
 )
 from ..core.graph_mapping import adjacency_from_reduced_density
 from ..core.laplacian import graph_laplacian, ordered_spectrum
@@ -58,13 +59,15 @@ def apply_syndrome_recovery_to_trajectory(noisy_traj: SpectralTrajectory,
     result is a drop-in replacement usable by the existing admissibility /
     trajectory-distance machinery.
     """
-    n_system = int(noisy_traj.meta.get("n_system", 3))
-    if n_system != 3:
+    spec = get_code_spec(code)
+    n_system = int(noisy_traj.meta.get("n_system", spec.n))
+    if n_system != spec.n:
         raise ValueError(
-            "Syndrome recovery expects a 3-qubit system trajectory (n_system=3), "
+            f"Syndrome recovery for {spec.name} expects n_system={spec.n}, "
             f"got n_system={n_system}."
         )
     mapping_mode = str(noisy_traj.meta.get("mapping_mode", "coherence_abs"))
+    warm_up_syndrome_recovery(spec.name)
     densities: list[np.ndarray] = []
     adjacency: list[np.ndarray] = []
     laplacians: list[np.ndarray] = []

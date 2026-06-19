@@ -1,8 +1,10 @@
 param(
-    [string]$CondaEnv = "QEC",
+    [string]$CondaEnv = "Qml",
     [string]$Seeds = "11,12,13,14,15,16,17,18,19,20",
     [string]$OutputSuffix = "260427_seed10",
-    [string]$CondaExe = ""
+    [string]$CondaExe = "",
+    [int]$Workers = 8,
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,6 +17,12 @@ $PlotsDir = Join-Path $Repo "results\plots"
 
 New-Item -ItemType Directory -Force -Path $RawDir, $TablesDir, $PlotsDir | Out-Null
 Set-Location $Repo
+
+$env:OMP_NUM_THREADS = "1"
+$env:MKL_NUM_THREADS = "1"
+$env:OPENBLAS_NUM_THREADS = "1"
+$env:NUMEXPR_NUM_THREADS = "1"
+$env:BIQMN_WORKERS = "$Workers"
 
 if (-not $CondaExe) {
     $condaCommand = Get-Command conda -ErrorAction SilentlyContinue
@@ -51,26 +59,38 @@ function Invoke-C3RExperiment {
 
     $stdout = Join-Path $RawDir "$Stem.stdout.log"
     $stderr = Join-Path $RawDir "$Stem.stderr.log"
+    $json = Join-Path $RawDir "$Stem.json"
+    if ((Test-Path $json) -and (-not $Force)) {
+        Write-MasterLog "SKIP $Label stem=$Stem existing_json=$json"
+        return
+    }
     Write-MasterLog "START $Label stem=$Stem"
 
     $argsList = @(
-        "run", "-n", $CondaEnv,
+        "run", "--no-capture-output", "-n", $CondaEnv,
         "python", "-m", $Module,
         "--seeds", $Seeds,
-        "--output-stem", $Stem
-    ) + $ExtraArgs
+        "--output-stem", $Stem,
+        "--workers", "$Workers"
+    )
+    if ($Force) {
+        $argsList += @("--no-resume")
+    }
+    $argsList += $ExtraArgs
 
-    & $CondaExe @argsList 1>> $stdout 2>> $stderr
-    if ($LASTEXITCODE -ne 0) {
-        Write-MasterLog "FAILED $Label exit=$LASTEXITCODE"
-        throw "$Label failed with exit code $LASTEXITCODE"
+    & $CondaExe @argsList
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        "Experiment failed; live output was written to the terminal." | Tee-Object -FilePath $stderr -Append | Out-Null
+        Write-MasterLog "FAILED $Label exit=$exitCode"
+        throw "$Label failed with exit code $exitCode"
     }
 
     Write-MasterLog "END $Label"
 }
 
 try {
-    Write-MasterLog "BATCH START repo=$Repo seeds=$Seeds conda_env=$CondaEnv"
+    Write-MasterLog "BATCH START repo=$Repo seeds=$Seeds conda_env=$CondaEnv workers=$Workers"
 
     Invoke-C3RExperiment `
         -Label "clean_regime_map" `

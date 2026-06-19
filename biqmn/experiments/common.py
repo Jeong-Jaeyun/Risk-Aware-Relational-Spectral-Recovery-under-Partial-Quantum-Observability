@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import json
+import os
+import sys
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable, Sequence
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 import numpy as np
 import yaml
@@ -113,6 +121,62 @@ def build_parser(
         help="Override the JSON output stem written under results/raw.",
     )
     return parser
+
+
+def progress_iter(
+    iterable: Iterable,
+    *,
+    total: int | None = None,
+    desc: str | None = None,
+    unit: str = "it",
+):
+    """Wrap an iterable in tqdm when available.
+
+    Set ``BIQMN_PROGRESS=0`` to disable progress bars for non-interactive runs.
+    """
+    if str(os.environ.get("BIQMN_PROGRESS", "1")).strip().lower() in {"0", "false", "no"}:
+        return iterable
+    try:
+        from tqdm.auto import tqdm
+    except Exception:
+        return iterable
+    return tqdm(iterable, total=total, desc=desc, unit=unit, file=sys.stdout)
+
+
+def progress_bar(
+    *,
+    total: int,
+    desc: str | None = None,
+    unit: str = "it",
+    initial: int = 0,
+):
+    """Return a tqdm progress bar when available, else a small no-op object."""
+    if str(os.environ.get("BIQMN_PROGRESS", "1")).strip().lower() in {"0", "false", "no"}:
+        return _NoOpProgress(total=total, initial=initial)
+    try:
+        from tqdm.auto import tqdm
+    except Exception:
+        return _NoOpProgress(total=total, initial=initial)
+    return tqdm(total=total, desc=desc, unit=unit, initial=initial, file=sys.stdout)
+
+
+class _NoOpProgress:
+    def __init__(self, *, total: int, initial: int = 0):
+        self.total = int(total)
+        self.n = int(initial)
+
+    def update(self, n: int = 1) -> None:
+        self.n += int(n)
+
+    def close(self) -> None:
+        return None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
 
 
 def resolve_output_stem(config: dict[str, Any], fallback: str, override: str | None) -> str:
@@ -301,3 +365,108 @@ def write_json_result(payload: dict[str, Any], stem: str, *, subdir: str = "raw"
         encoding="utf-8",
     )
     return path
+
+
+def append_jsonl_row(path: str | Path, row: dict[str, Any]) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(to_serializable(row), ensure_ascii=False, separators=(",", ":")))
+        handle.write("\n")
+
+
+def load_jsonl_rows(path: str | Path) -> list[dict[str, Any]]:
+    target = Path(path)
+    if not target.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    with target.open("r", encoding="utf-8") as handle:
+        for line_no, line in enumerate(handle, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Malformed JSONL row in {target} at line {line_no}") from exc
+            if isinstance(value, dict):
+                rows.append(value)
+    return rows
+
+
+def _case_key(case: dict[str, Any], key_field: str) -> Any:
+    if key_field not in case:
+        raise KeyError(f"Case is missing key field {key_field!r}: {case!r}")
+    return case[key_field]
+
+
+def run_case_tasks(
+    cases: Sequence[dict[str, Any]],
+    worker_fn: Callable[[dict[str, Any]], dict[str, Any]],
+    *,
+    max_workers: int = 1,
+    desc: str | None = None,
+    unit: str = "case",
+    key_field: str = "sample_index",
+    jsonl_path: str | Path | None = None,
+    resume: bool = True,
+    existing_rows: Sequence[dict[str, Any]] | None = None,
+    initializer: Callable[..., None] | None = None,
+    initargs: tuple[Any, ...] = (),
+) -> list[dict[str, Any]]:
+    """Run independent case tasks, optionally in processes, with main-process JSONL writes."""
+    cases = list(cases)
+    max_workers = max(1, int(max_workers))
+
+    rows_by_key: dict[Any, dict[str, Any]] = {}
+    if jsonl_path is not None:
+        path = Path(jsonl_path)
+        if resume:
+            cached = list(existing_rows) if existing_rows is not None else load_jsonl_rows(path)
+            valid_keys = {_case_key(case, key_field) for case in cases}
+            for row in cached:
+                if key_field not in row:
+                    continue
+                key = row[key_field]
+                if key in valid_keys:
+                    rows_by_key[key] = dict(row)
+        elif path.exists():
+            path.unlink()
+
+    pending_cases = [
+        case for case in cases if _case_key(case, key_field) not in rows_by_key
+    ]
+    if not pending_cases:
+        return [rows_by_key[_case_key(case, key_field)] for case in cases]
+
+    if max_workers == 1:
+        if initializer is not None:
+            initializer(*initargs)
+        with progress_bar(total=len(cases), desc=desc, unit=unit, initial=len(rows_by_key)) as progress:
+            for case in pending_cases:
+                row = worker_fn(case)
+                key = _case_key(case, key_field)
+                rows_by_key[key] = row
+                if jsonl_path is not None:
+                    append_jsonl_row(jsonl_path, row)
+                progress.update(1)
+    else:
+        with progress_bar(total=len(cases), desc=desc, unit=unit, initial=len(rows_by_key)) as progress:
+            with ProcessPoolExecutor(
+                max_workers=max_workers,
+                initializer=initializer,
+                initargs=initargs,
+            ) as executor:
+                futures = {
+                    executor.submit(worker_fn, case): _case_key(case, key_field)
+                    for case in pending_cases
+                }
+                for future in as_completed(futures):
+                    key = futures[future]
+                    row = future.result()
+                    rows_by_key[key] = row
+                    if jsonl_path is not None:
+                        append_jsonl_row(jsonl_path, row)
+                    progress.update(1)
+
+    return [rows_by_key[_case_key(case, key_field)] for case in cases]
