@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the associated manuscript and repository."
+title: "Risk-Aware Relational Spectral Recovery under Partial Quantum Observability"
+type: software
+authors:
+  - family-names: Jeong
+    given-names: Jaeyun
+    orcid: "https://orcid.org/0009-0005-3281-5858"
+  - family-names: Jeong
+    given-names: HwaYoung
+    orcid: "https://orcid.org/0000-0002-5017-934X"
+repository-code: "https://github.com/Jeong-Jaeyun/Risk-Aware-Relational-Spectral-Recovery-under-Partial-Quantum-Observability"
+license: MIT
+version: 2.0.0
+date-released: 2026-06-20
+preferred-citation:
+  type: article
+  title: "Uncertainty-Gated Structural Recovery under Syndrome Ambiguity across Canonical Stabilizer Codes"
+  authors:
+    - family-names: Jeong
+      given-names: Jaeyun
+      orcid: "https://orcid.org/0009-0005-3281-5858"
+    - family-names: Jeong
+      given-names: HwaYoung
+      orcid: "https://orcid.org/0000-0002-5017-934X"
+  year: 2026

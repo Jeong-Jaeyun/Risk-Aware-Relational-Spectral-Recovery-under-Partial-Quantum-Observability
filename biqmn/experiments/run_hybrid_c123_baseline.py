@@ -11,12 +11,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
 from typing import Any, Sequence
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 import numpy as np
 
@@ -25,7 +31,16 @@ from ..baselines.syndrome_recovery import (
     collect_syndrome_statistics,
 )
 from ..core.trajectory import trajectory_distance
-from .common import RESULT_ROOT, load_config, resolve_output_stem, to_serializable, write_json_result
+from .common import (
+    RESULT_ROOT,
+    load_config,
+    load_jsonl_rows,
+    progress_iter,
+    resolve_output_stem,
+    run_case_tasks,
+    to_serializable,
+    write_json_result,
+)
 from .syndrome_observation import SyndromeObservationConfig, observe_syndrome_statistics
 from .run_encoded_qec_baseline import (
     _candidate_objective_and_report,
@@ -59,6 +74,65 @@ class C3RPolicyConfig:
     admissibility_gap_min: float = 0.0
     b_violation_tolerance: float = 0.0
     uncertainty_max: float = 0.99
+
+
+_SAMPLE_WORKER_CONTEXT: dict[str, Any] | None = None
+
+
+def _case_key(
+    *,
+    sample_index: int,
+    seed: int,
+    code: str,
+    family: str,
+    strength: float,
+    depth: int,
+) -> str:
+    return (
+        f"{int(sample_index):08d}|seed={int(seed)}|code={code}|family={family}|"
+        f"strength={float(strength):.12g}|depth={int(depth)}"
+    )
+
+
+def _init_sample_worker(context: dict[str, Any]) -> None:
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+    global _SAMPLE_WORKER_CONTEXT
+    _SAMPLE_WORKER_CONTEXT = context
+
+
+def _sample_row_from_case(case: dict[str, Any]) -> dict[str, Any]:
+    if _SAMPLE_WORKER_CONTEXT is None:
+        raise RuntimeError("Sample worker context was not initialized.")
+    ctx = _SAMPLE_WORKER_CONTEXT
+    code = str(case["code"])
+    row = _sample_row(
+        run_id=str(ctx["run_id"]),
+        timestamp=str(ctx["timestamp"]),
+        config_name=str(ctx["experiment_config"]),
+        code_family=code,
+        state_config_path=str(ctx["state_configs"][code]),
+        base_config=ctx["base_configs"][code],
+        seed=int(case["seed"]),
+        sample_index=int(case["sample_index"]),
+        noise_family=str(case["family"]),
+        noise_strength=float(case["strength"]),
+        noise_depth=int(case["depth"]),
+        logical_success_threshold=float(ctx["logical_success_threshold"]),
+        fidelity_margin=float(ctx["fidelity_margin"]),
+        c2_cfg=ctx["c2_cfg"],
+        c3_cfg=ctx["c3_cfg"],
+        c3r_cfg=ctx["c3r_cfg"],
+        syndrome_obs_cfg=ctx["syndrome_obs_cfg"],
+        c1_objective_tol=float(ctx["c1_objective_tol"]),
+        c1_tie_break_requires_syndrome_consistent=bool(
+            ctx["c1_tie_break_requires_syndrome_consistent"]
+        ),
+    )
+    row["case_key"] = str(case["case_key"])
+    return row
 
 
 def _score_utility(
@@ -199,6 +273,9 @@ def _code_name(code_family: str) -> str:
     return {
         "bitflip": "3q_bitflip_repetition",
         "phaseflip": "3q_phaseflip_repetition",
+        "perfect5": "5q_perfect_code",
+        "steane7": "7q_steane_code",
+        "shor9": "9q_shor_code",
     }.get(str(code_family), str(code_family))
 
 
@@ -662,6 +739,16 @@ def _sample_row(
         "noise_strength": float(noise_strength),
         "noise_depth": int(noise_depth),
         "seed": int(seed),
+        "sample_index": int(sample_index),
+        "case_key": _case_key(
+            sample_index=int(sample_index),
+            seed=int(seed),
+            code=str(code_family),
+            family=str(noise_family),
+            strength=float(noise_strength),
+            depth=int(noise_depth),
+        ),
+        "fidelity_margin": float(fidelity_margin),
         "syndrome_label": str(observed_syndrome["dominant"]),
         "true_syndrome_label": str(true_syndrome["dominant"]),
         "observed_syndrome_label": str(observed_syndrome["dominant"]),
@@ -1322,12 +1409,13 @@ def run(
     c1_tie_break_requires_syndrome_consistent: bool,
     experiment_config: str,
     output_stem: str,
+    max_workers: int = 1,
+    resume: bool = True,
 ) -> dict[str, Any]:
     syndrome_obs_cfg = syndrome_obs_cfg or SyndromeObservationConfig()
     c3r_cfg = c3r_cfg or C3RPolicyConfig()
     timestamp = datetime.now(timezone.utc).isoformat()
     run_id = f"{output_stem}-{timestamp}"
-    rows: list[dict[str, Any]] = []
     base_configs = {}
     for code in codes:
         cfg = load_config(experiment_config=experiment_config, state_config=state_configs[code])
@@ -1336,38 +1424,69 @@ def run(
             str(key): list(value) for key, value in kinds_by_code.items()
         }
         base_configs[str(code)] = cfg
-    sample_index = 0
-    for seed in seeds:
-        for code in codes:
-            base_config = deepcopy(base_configs[str(code)])
-            for family in noise_families:
-                for strength in strengths:
-                    for depth in depths:
-                        row = _sample_row(
-                            run_id=run_id,
-                            timestamp=timestamp,
-                            config_name=str(experiment_config),
-                            code_family=str(code),
-                            state_config_path=str(state_configs[str(code)]),
-                            base_config=base_config,
-                            seed=int(seed),
-                            sample_index=int(sample_index),
-                            noise_family=str(family),
-                            noise_strength=float(strength),
-                            noise_depth=int(depth),
-                            logical_success_threshold=float(logical_success_threshold),
-                            fidelity_margin=float(fidelity_margin),
-                            c2_cfg=c2_cfg,
-                            c3_cfg=c3_cfg,
-                            c3r_cfg=c3r_cfg,
-                            syndrome_obs_cfg=syndrome_obs_cfg,
-                            c1_objective_tol=float(c1_objective_tol),
-                            c1_tie_break_requires_syndrome_consistent=bool(
-                                c1_tie_break_requires_syndrome_consistent
-                            ),
-                        )
-                        rows.append(row)
-                        sample_index += 1
+    case_rows_path = RESULT_ROOT / "raw" / f"{output_stem}.rows.jsonl"
+    existing_rows = load_jsonl_rows(case_rows_path) if resume else []
+    if existing_rows:
+        timestamp = str(existing_rows[0].get("timestamp", timestamp))
+        run_id = str(existing_rows[0].get("run_id", run_id))
+    cases = [
+        {
+            "sample_index": int(sample_index),
+            "seed": int(seed),
+            "code": str(code),
+            "family": str(family),
+            "strength": float(strength),
+            "depth": int(depth),
+            "case_key": _case_key(
+                sample_index=int(sample_index),
+                seed=int(seed),
+                code=str(code),
+                family=str(family),
+                strength=float(strength),
+                depth=int(depth),
+            ),
+        }
+        for sample_index, (seed, code, family, strength, depth) in enumerate(
+            (
+                (int(seed), str(code), str(family), float(strength), int(depth))
+                for seed in seeds
+                for code in codes
+                for family in noise_families
+                for strength in strengths
+                for depth in depths
+            )
+        )
+    ]
+    context = {
+        "run_id": run_id,
+        "timestamp": timestamp,
+        "experiment_config": str(experiment_config),
+        "state_configs": {str(key): str(value) for key, value in state_configs.items()},
+        "base_configs": base_configs,
+        "logical_success_threshold": float(logical_success_threshold),
+        "fidelity_margin": float(fidelity_margin),
+        "c2_cfg": c2_cfg,
+        "c3_cfg": c3_cfg,
+        "c3r_cfg": c3r_cfg,
+        "syndrome_obs_cfg": syndrome_obs_cfg,
+        "c1_objective_tol": float(c1_objective_tol),
+        "c1_tie_break_requires_syndrome_consistent": bool(
+            c1_tie_break_requires_syndrome_consistent
+        ),
+    }
+    rows = run_case_tasks(
+        cases,
+        _sample_row_from_case,
+        max_workers=max_workers,
+        desc=f"{output_stem}: hybrid samples",
+        unit="case",
+        key_field="case_key",
+        jsonl_path=case_rows_path,
+        resume=resume,
+        existing_rows=existing_rows,
+        initializer=_init_sample_worker,
+        initargs=(context,),
+    )
     result = {
         "grid": {
             "codes": [str(item) for item in codes],
@@ -1377,6 +1496,11 @@ def run(
             "seeds": [int(item) for item in seeds],
             "fidelity_margin": float(fidelity_margin),
             "logical_success_threshold": float(logical_success_threshold),
+        },
+        "execution": {
+            "max_workers": int(max_workers),
+            "resume": bool(resume),
+            "case_rows_jsonl": str(case_rows_path),
         },
         "policies": {
             "c2": c2_cfg.__dict__,
@@ -1436,6 +1560,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--depths", default=None)
     parser.add_argument("--seeds", default=None)
     parser.add_argument("--output-stem", default=None)
+    parser.add_argument("--workers", type=int, default=None)
+    parser.add_argument("--no-resume", action="store_true")
     return parser
 
 
@@ -1495,6 +1621,8 @@ def main() -> None:
         ),
         experiment_config=args.config,
         output_stem=stem,
+        max_workers=int(args.workers if args.workers is not None else os.environ.get("BIQMN_WORKERS", "1")),
+        resume=not bool(args.no_resume),
     )
     json_path = write_json_result(result, f"{stem}_summary")
     tables_dir = RESULT_ROOT / "tables"

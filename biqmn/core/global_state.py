@@ -93,23 +93,24 @@ def build_encoded_entangled_state(n_clock: int,
                                   n_system: int,
                                   code: str,
                                   amplitudes: np.ndarray | None = None) -> np.ndarray:
-    """Global clock-logical-Bell state for a 3-qubit repetition code.
+    """Global clock-logical-Bell state for a one-logical-qubit QEC code.
 
     For a 1-qubit clock the state is
         |Ψ⟩ = c_0 |0⟩_C ⊗ |0_L⟩_S + c_1 |1⟩_C ⊗ |1_L⟩_S
-    where (|0_L⟩, |1_L⟩) is the encoding basis for `code` ∈ {bitflip, phaseflip}.
+    where (|0_L⟩, |1_L⟩) is the encoding basis for ``code``.
     """
-    from .encoding import logical_basis  # local import avoids circularity
+    from .encoding import get_code_spec, logical_basis  # local import avoids circularity
 
     if int(n_clock) != 1:
         raise NotImplementedError(
-            "Encoded repetition-code preparation currently supports a 1-qubit clock."
+            "Encoded QEC preparation currently supports a 1-qubit clock."
         )
-    if int(n_system) != 3:
+    spec = get_code_spec(code)
+    if int(n_system) != int(spec.n):
         raise ValueError(
-            f"[[3,1,1]] code requires n_system=3, got {n_system}."
+            f"{spec.description} requires n_system={spec.n}, got {n_system}."
         )
-    psi_0L, psi_1L = logical_basis(code)
+    psi_0L, psi_1L = logical_basis(spec.name)
     if amplitudes is None:
         coeffs = np.array([1.0, 1.0], dtype=complex)
     else:

@@ -19,6 +19,14 @@ from biqmn.core.clock_consistency import (
     clock_penalty,
 )
 from biqmn.core.hamiltonian import check_nullspace, clock_energy_variance
+from biqmn.core.encoding import (
+    apply_syndrome_recovery,
+    collapse_probability,
+    get_code_spec,
+    logical_state,
+    single_qubit_pauli_operator,
+    syndrome_correction_map,
+)
 from biqmn.core.metrics import bures_distance, fidelity
 from biqmn.core.relative_state import (
     adjacent_fidelity,
@@ -395,6 +403,48 @@ class TheoryAlignmentTests(unittest.TestCase):
         null_info = check_nullspace(bundle["Htot"])
         self.assertGreaterEqual(null_info["dim"], 1)
         self.assertLess(bundle["meta"]["constraint_residual"], 1e-8)
+
+    def test_phase2_codes_correct_single_qubit_pauli_errors(self) -> None:
+        for code in ("perfect5", "steane7", "shor9"):
+            with self.subTest(code=code):
+                spec = get_code_spec(code)
+                psi = logical_state(code, [1.0, 0.37 + 0.21j])
+                rho = np.outer(psi, psi.conj())
+                correction_map = syndrome_correction_map(code)
+                self.assertIn(tuple(0 for _ in spec.stabilizers), correction_map)
+                for qubit in range(spec.n):
+                    for pauli in ("X", "Y", "Z"):
+                        error = single_qubit_pauli_operator(spec.n, qubit, pauli)
+                        rho_error = error @ rho @ error.conj().T
+                        recovered = apply_syndrome_recovery(rho_error, code)
+                        fidelity_after = float(np.real(np.vdot(psi, recovered @ psi)))
+                        self.assertAlmostEqual(fidelity_after, 1.0, places=8)
+                        self.assertAlmostEqual(
+                            collapse_probability(recovered, code),
+                            0.0,
+                            places=8,
+                        )
+
+    def test_phase2_encoded_pipeline_builds_smoke_trajectories(self) -> None:
+        for code, state_config in (
+            ("perfect5", "states/perfect5.yaml"),
+            ("steane7", "states/steane7.yaml"),
+            ("shor9", "states/shor9.yaml"),
+        ):
+            with self.subTest(code=code):
+                cfg = load_config(
+                    experiment_config="experiment/trajectory_probe.yaml",
+                    state_config=state_config,
+                    overrides={
+                        "simulation": {"backend": "linear_algebra"},
+                        "time": {"n_tau": 3},
+                    },
+                )
+                bundle = build_pipeline(cfg, with_noise=False)
+                spec = get_code_spec(code)
+                self.assertEqual(bundle["n_system"], spec.n)
+                self.assertEqual(bundle["trajectory"].n_nodes, spec.n)
+                self.assertEqual(len(bundle["trajectory"]), 3)
 
     def test_encoded_bitflip_mapping_sees_bitflip_noise(self) -> None:
         cfg = load_config(

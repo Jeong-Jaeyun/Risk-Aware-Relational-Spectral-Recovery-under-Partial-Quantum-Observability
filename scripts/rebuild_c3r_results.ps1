@@ -1,5 +1,5 @@
 param(
-    [string]$CondaEnv = "QEC",
+    [string]$CondaEnv = "Qml",
     [string]$Stems = "",
     [string]$CondaExe = ""
 )
@@ -26,7 +26,7 @@ if (-not $CondaExe) {
     }
 }
 
-$argsList = @("run", "-n", $CondaEnv, "python", "-m", "biqmn.experiments.rebuild_c3r_results")
+$argsList = @("run", "--no-capture-output", "-n", $CondaEnv, "python", "-m", "biqmn.experiments.rebuild_c3r_results")
 if ($Stems) {
     $argsList += @("--stems", $Stems)
 }

@@ -1,15 +1,35 @@
+simulation:
+  backend: linear_algebra
+
 hybrid_c123:
   codes:
-    - phaseflip
+    - perfect5
+    - steane7
+    - shor9
   state_configs:
-    phaseflip: states/repetition_phaseflip.yaml
+    perfect5: states/perfect5.yaml
+    steane7: states/steane7.yaml
+    shor9: states/shor9.yaml
   kinds_by_code:
-    phaseflip:
+    perfect5:
+      - bitflip
       - phaseflip
       - dephasing
+      - depolarizing
+    steane7:
       - bitflip
+      - phaseflip
+      - dephasing
+      - depolarizing
+    shor9:
+      - bitflip
+      - phaseflip
+      - dephasing
+      - depolarizing
   noise_families:
+    - bitflip
     - phaseflip
+    - depolarizing
     - dephasing
     - mixed_pauli
   strengths:

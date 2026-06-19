@@ -3,8 +3,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any, Sequence
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 import matplotlib
 
@@ -13,7 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .coherent_veto_common import ensure_plot_root
-from .common import RESULT_ROOT, load_config, resolve_output_stem, to_serializable, write_json_result
+from .common import RESULT_ROOT, load_config, progress_iter, resolve_output_stem, to_serializable, write_json_result
 from .run_encoded_qec_baseline import _markdown_table, _write_csv
 from .run_hybrid_c123_baseline import (
     C3RPolicyConfig,
@@ -294,9 +300,16 @@ def run(
     experiment_config: str,
     output_stem: str,
     plot_prefix: str,
+    max_workers: int = 1,
+    resume: bool = True,
 ) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
-    for ratio in observation_ratios:
+    for ratio in progress_iter(
+        observation_ratios,
+        total=len(observation_ratios),
+        desc=f"{output_stem}: observation ratios",
+        unit="ratio",
+    ):
         ratio_cfg = SyndromeObservationConfig(
             observation_ratio=float(ratio),
             noise_prob=float(syndrome_obs_cfg.noise_prob),
@@ -323,6 +336,8 @@ def run(
             c1_tie_break_requires_syndrome_consistent=c1_tie_break_requires_syndrome_consistent,
             experiment_config=experiment_config,
             output_stem=f"{output_stem}_r{ratio:.2f}",
+            max_workers=max_workers,
+            resume=resume,
         )
         rows.extend(dict(row) for row in baseline["rows"])
 
@@ -415,6 +430,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--observation-ratios", default=None)
     parser.add_argument("--output-stem", default=None)
     parser.add_argument("--plot-prefix", default=None)
+    parser.add_argument("--workers", type=int, default=None)
+    parser.add_argument("--no-resume", action="store_true")
     return parser
 
 
@@ -479,6 +496,8 @@ def main() -> None:
         experiment_config=args.config,
         output_stem=stem,
         plot_prefix=plot_prefix,
+        max_workers=int(args.workers if args.workers is not None else os.environ.get("BIQMN_WORKERS", "1")),
+        resume=not bool(args.no_resume),
     )
     json_path = write_json_result(result, stem)
     tables_dir = RESULT_ROOT / "tables"
